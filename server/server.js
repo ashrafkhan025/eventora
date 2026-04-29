@@ -6,7 +6,7 @@ const path = require('path');
 
 
 
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 
 
@@ -41,13 +41,17 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 
-// Database Connection
-mongoose.connect(process.env.MONGO_URI )
-  .then(() => console.log('MongoDB Connected'))
-  .catch(err => console.error('MongoDB Connection Error:', err));
-
-
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () =>{ console.log(`Server running on port ${PORT}`)
-});
+// Database Connection
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => {
+    console.log('MongoDB Connected');
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('MongoDB Connection Error:', err);
+    process.exit(1);
+  });
 

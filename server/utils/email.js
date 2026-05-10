@@ -4,20 +4,49 @@ const path = require('path');
 
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
+let transporter;
 
-//Ek email sender setup karo jo Gmail account se login karke emails bhej sake
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+const requiredEnv = (name) => {
+    const value = process.env[name]?.trim();
+    if (!value) {
+        throw new Error(`Missing required email environment variable: ${name}`);
     }
-});
+    return value;
+};
+
+const getEmailConfig = () => {
+    const user = requiredEnv('EMAIL_USER');
+    const pass = requiredEnv('EMAIL_PASS').replace(/\s/g, '');
+
+    if (process.env.SMTP_HOST) {
+        return {
+            host: process.env.SMTP_HOST.trim(),
+            port: Number(process.env.SMTP_PORT || 587),
+            secure: process.env.SMTP_SECURE === 'true',
+            auth: { user, pass }
+        };
+    }
+
+    // Gmail requires a 16-character app password when 2FA is enabled.
+    return {
+        service: 'gmail',
+        auth: { user, pass }
+    };
+};
+
+// Create the transporter lazily so deployed env vars are read at send time.
+const getTransporter = () => {
+    if (!transporter) {
+        transporter = nodemailer.createTransport(getEmailConfig());
+    }
+    return transporter;
+};
 
 const sendBookingEmail = async (userEmail, userName, eventTitle) => {
     try {
+        const emailUser = requiredEnv('EMAIL_USER');
         const mailOptions = {
-            from: process.env.EMAIL_USER,
+            from: `"Eventora" <${emailUser}>`,
             to: userEmail,
             subject: `Booking Confirmed: ${eventTitle}`,
             html: `
@@ -26,22 +55,16 @@ const sendBookingEmail = async (userEmail, userName, eventTitle) => {
         <p>Thank you for choosing Eventora.</p>
       `
         };
-        await transporter.sendMail(mailOptions);
+        await getTransporter().sendMail(mailOptions);
         console.log('Email sent successfully to', userEmail);
     } catch (error) {
         console.error('Error sending email:', error);
     }
 };
 
-const ensureEmailConfig = () => {
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        throw new Error('Email credentials are missing. Check EMAIL_USER and EMAIL_PASS in server/.env');
-    }
-};
-
 const sendOTPEmail = async (userEmail, otp, type) => {
     try {
-        ensureEmailConfig();
+        const emailUser = requiredEnv('EMAIL_USER');
 
         const title = type === 'account_verification' ? 'Verify your Eventora Account' : 'Eventora Booking Verification';
         const msg = type === 'account_verification'
@@ -49,7 +72,7 @@ const sendOTPEmail = async (userEmail, otp, type) => {
             : 'Please use the following OTP to verify and confirm your event booking.';
 
         const mailOptions = {
-            from: process.env.EMAIL_USER,
+            from: `"Eventora" <${emailUser}>`,
             to: userEmail,
             subject: title,
             html: `
@@ -63,7 +86,7 @@ const sendOTPEmail = async (userEmail, otp, type) => {
                 </div>
             `
         };
-        await transporter.sendMail(mailOptions);
+        await getTransporter().sendMail(mailOptions);
         console.log(`OTP sent to ${userEmail} for ${type}`);
     } catch (error) {
         console.error('Error sending OTP email:', error);

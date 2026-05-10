@@ -13,6 +13,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 const authRoutes = require('./routes/auth.js');
 const eventRoutes = require('./routes/events.js');
 const bookingRoutes = require('./routes/booking.js');
+const { getEmailDiagnostics, verifyEmailTransport } = require('./utils/email.js');
 
 const app = express();
 const clientDistPath = path.join(__dirname, '../client/dist');
@@ -26,6 +27,22 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/bookings', bookingRoutes);
+
+app.get('/api/health/email', async (req, res) => {
+    const diagnostics = getEmailDiagnostics();
+
+    try {
+        const verification = await verifyEmailTransport();
+        res.json({ ...diagnostics, ...verification });
+    } catch (error) {
+        res.status(500).json({
+            ...diagnostics,
+            ok: false,
+            error: error.code || error.name || 'EMAIL_CONFIG_ERROR',
+            message: error.message
+        });
+    }
+});
 
 if (process.env.NODE_ENV === 'production') {
     app.use(express.static(clientDistPath));

@@ -14,22 +14,16 @@ const requiredEnv = (name) => {
     return value;
 };
 
+const cleanOptionalEnv = (name) => process.env[name]?.trim();
+
 const getEmailConfig = () => {
     const user = requiredEnv('EMAIL_USER');
     const pass = requiredEnv('EMAIL_PASS').replace(/\s/g, '');
 
-    if (process.env.SMTP_HOST) {
-        return {
-            host: process.env.SMTP_HOST.trim(),
-            port: Number(process.env.SMTP_PORT || 587),
-            secure: process.env.SMTP_SECURE === 'true',
-            auth: { user, pass }
-        };
-    }
-
-    // Gmail requires a 16-character app password when 2FA is enabled.
     return {
-        service: 'gmail',
+        host: cleanOptionalEnv('SMTP_HOST') || 'smtp.gmail.com',
+        port: Number(cleanOptionalEnv('SMTP_PORT') || 465),
+        secure: cleanOptionalEnv('SMTP_SECURE') !== 'false',
         auth: { user, pass }
     };
 };
@@ -42,11 +36,70 @@ const getTransporter = () => {
     return transporter;
 };
 
+const getFromAddress = () => {
+    return cleanOptionalEnv('EMAIL_FROM') || `"Eventora" <${requiredEnv('EMAIL_USER')}>`;
+};
+
+const sendWithResend = async (mailOptions) => {
+    const apiKey = cleanOptionalEnv('RESEND_API_KEY');
+    if (!apiKey) return false;
+
+    if (typeof fetch !== 'function') {
+        throw new Error('RESEND_API_KEY is set, but this Node.js version does not support fetch. Use Node 18+.');
+    }
+
+    const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            from: cleanOptionalEnv('RESEND_FROM_EMAIL') || mailOptions.from,
+            to: [mailOptions.to],
+            subject: mailOptions.subject,
+            html: mailOptions.html
+        })
+    });
+
+    if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Resend email failed with status ${response.status}: ${body}`);
+    }
+
+    return true;
+};
+
+const sendMail = async (mailOptions) => {
+    const sentWithResend = await sendWithResend(mailOptions);
+    if (sentWithResend) return;
+    await getTransporter().sendMail(mailOptions);
+};
+
+const getEmailDiagnostics = () => ({
+    provider: cleanOptionalEnv('RESEND_API_KEY') ? 'resend' : 'smtp',
+    hasEmailUser: Boolean(cleanOptionalEnv('EMAIL_USER')),
+    hasEmailPass: Boolean(cleanOptionalEnv('EMAIL_PASS')),
+    hasEmailFrom: Boolean(cleanOptionalEnv('EMAIL_FROM') || cleanOptionalEnv('RESEND_FROM_EMAIL')),
+    smtpHost: cleanOptionalEnv('SMTP_HOST') || 'smtp.gmail.com',
+    smtpPort: Number(cleanOptionalEnv('SMTP_PORT') || 465),
+    smtpSecure: cleanOptionalEnv('SMTP_SECURE') !== 'false',
+    nodeEnv: process.env.NODE_ENV || 'development'
+});
+
+const verifyEmailTransport = async () => {
+    if (cleanOptionalEnv('RESEND_API_KEY')) {
+        return { ok: true, provider: 'resend', message: 'Resend API key is configured' };
+    }
+
+    await getTransporter().verify();
+    return { ok: true, provider: 'smtp', message: 'SMTP connection verified' };
+};
+
 const sendBookingEmail = async (userEmail, userName, eventTitle) => {
     try {
-        const emailUser = requiredEnv('EMAIL_USER');
         const mailOptions = {
-            from: `"Eventora" <${emailUser}>`,
+            from: getFromAddress(),
             to: userEmail,
             subject: `Booking Confirmed: ${eventTitle}`,
             html: `
@@ -55,7 +108,7 @@ const sendBookingEmail = async (userEmail, userName, eventTitle) => {
         <p>Thank you for choosing Eventora.</p>
       `
         };
-        await getTransporter().sendMail(mailOptions);
+        await sendMail(mailOptions);
         console.log('Email sent successfully to', userEmail);
     } catch (error) {
         console.error('Error sending email:', error);
@@ -64,15 +117,13 @@ const sendBookingEmail = async (userEmail, userName, eventTitle) => {
 
 const sendOTPEmail = async (userEmail, otp, type) => {
     try {
-        const emailUser = requiredEnv('EMAIL_USER');
-
         const title = type === 'account_verification' ? 'Verify your Eventora Account' : 'Eventora Booking Verification';
         const msg = type === 'account_verification'
             ? 'Please use the following OTP to verify your new Eventora account.'
             : 'Please use the following OTP to verify and confirm your event booking.';
 
         const mailOptions = {
-            from: `"Eventora" <${emailUser}>`,
+            from: getFromAddress(),
             to: userEmail,
             subject: title,
             html: `
@@ -86,7 +137,7 @@ const sendOTPEmail = async (userEmail, otp, type) => {
                 </div>
             `
         };
-        await getTransporter().sendMail(mailOptions);
+        await sendMail(mailOptions);
         console.log(`OTP sent to ${userEmail} for ${type}`);
     } catch (error) {
         console.error('Error sending OTP email:', error);
@@ -94,4 +145,4 @@ const sendOTPEmail = async (userEmail, otp, type) => {
     }
 };
 
-module.exports = { sendBookingEmail, sendOTPEmail };
+module.exports = { sendBookingEmail, sendOTPEmail, getEmailDiagnostics, verifyEmailTransport };

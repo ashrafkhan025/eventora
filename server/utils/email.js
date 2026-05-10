@@ -24,6 +24,9 @@ const getEmailConfig = () => {
         host: cleanOptionalEnv('SMTP_HOST') || 'smtp.gmail.com',
         port: Number(cleanOptionalEnv('SMTP_PORT') || 465),
         secure: cleanOptionalEnv('SMTP_SECURE') !== 'false',
+        connectionTimeout: Number(cleanOptionalEnv('SMTP_CONNECTION_TIMEOUT') || 10000),
+        greetingTimeout: Number(cleanOptionalEnv('SMTP_GREETING_TIMEOUT') || 10000),
+        socketTimeout: Number(cleanOptionalEnv('SMTP_SOCKET_TIMEOUT') || 10000),
         auth: { user, pass }
     };
 };

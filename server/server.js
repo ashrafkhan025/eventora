@@ -13,10 +13,16 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 const authRoutes = require('./routes/auth.js');
 const eventRoutes = require('./routes/events.js');
 const bookingRoutes = require('./routes/booking.js');
-const { getEmailDiagnostics, verifyEmailTransport } = require('./utils/email.js');
+const { getEmailDiagnostics, sendDiagnosticEmail, verifyEmailTransport } = require('./utils/email.js');
 
 const app = express();
 const clientDistPath = path.join(__dirname, '../client/dist');
+
+const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET'];
+const missingEnvVars = requiredEnvVars.filter((name) => !process.env[name]);
+if (missingEnvVars.length) {
+    console.warn(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+}
 
 
 // Middleware
@@ -40,6 +46,34 @@ app.get('/api/health/email', async (req, res) => {
             ok: false,
             error: error.code || error.name || 'EMAIL_CONFIG_ERROR',
             message: error.message
+        });
+    }
+});
+
+app.post('/api/health/email/test', async (req, res) => {
+    if (!process.env.HEALTH_CHECK_SECRET) {
+        return res.status(403).json({
+            message: 'Email test endpoint is disabled. Set HEALTH_CHECK_SECRET in deployment env vars to enable it.'
+        });
+    }
+
+    if (req.headers['x-health-secret'] !== process.env.HEALTH_CHECK_SECRET) {
+        return res.status(401).json({ message: 'Invalid health check secret' });
+    }
+
+    const email = req.body.email?.trim().toLowerCase();
+    if (!email) {
+        return res.status(400).json({ message: 'Email is required' });
+    }
+
+    try {
+        await sendDiagnosticEmail(email);
+        res.json({ message: 'Diagnostic email sent', email });
+    } catch (error) {
+        res.status(500).json({
+            ...getEmailDiagnostics(),
+            message: error.message,
+            error: error.code || error.name || 'EMAIL_SEND_FAILED'
         });
     }
 });

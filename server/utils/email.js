@@ -96,6 +96,22 @@ const verifyEmailTransport = async () => {
     return { ok: true, provider: 'smtp', message: 'SMTP connection verified' };
 };
 
+const sendDiagnosticEmail = async (userEmail) => {
+    const mailOptions = {
+        from: getFromAddress(),
+        to: userEmail,
+        subject: 'Eventora Email Test',
+        html: `
+            <div style="font-family: Arial, sans-serif; padding: 20px;">
+                <h2>Eventora email is working</h2>
+                <p>This test email was sent by your deployed backend.</p>
+            </div>
+        `
+    };
+
+    await sendMail(mailOptions);
+};
+
 const sendBookingEmail = async (userEmail, userName, eventTitle) => {
     try {
         const mailOptions = {
@@ -145,4 +161,4 @@ const sendOTPEmail = async (userEmail, otp, type) => {
     }
 };
 
-module.exports = { sendBookingEmail, sendOTPEmail, getEmailDiagnostics, verifyEmailTransport };
+module.exports = { sendBookingEmail, sendOTPEmail, sendDiagnosticEmail, getEmailDiagnostics, verifyEmailTransport };
